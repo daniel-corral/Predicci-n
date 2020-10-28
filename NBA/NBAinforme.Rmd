@@ -1,0 +1,272 @@
+---
+title: "NBASalary"
+author: Daniel Corral Ruiz
+date: "Miercoles, 28 Octubre, 2020"
+output:
+  html_document:
+    theme: journal
+    df_print: paged
+    
+---
+La finalidad de este estudio se basa en crear el mejor modelo de regresión lineal con la finalidad de predecir salarios de jugadores de la NBA.
+
+# Carga de librerías
+Las librerías necesarias para comenzar con el estudio son "dplyr", "tidyverse" y "ggplot2".
+
+```{r setup, eval=FALSE, echo=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+```
+
+# Carga y limpieza de datos
+El dataset escogido para la predicción muestra datos sobre jugadores de baloncesto de la NBA. El objetivo es determinar el mejor modelo para predecir el salario de los jugadores de la NBA.
+
+```{r, warning = FALSE, echo=FALSE}
+dataNBA = read.csv("nba.csv")
+```
+
+### Limpieza de valores nulos
+En el dataset principal se encuentran 2 valores nulos. Por lo tanto se ha creado un nuevo dataset sin nungún valor na.
+```{r, warning = FALSE, echo=FALSE}
+dataNBAclean = na.omit(dataNBA)
+```
+
+### Datos duplicados
+Comprobación de valores duplicados en la variable "Player", ya que complicará el estudio y por lo tanto la predicción.
+```{r, eval=FALSE, echo=FALSE}
+duplicated(dataNBAclean)
+nrow(dataNBAclean[duplicated(dataNBAclean$Player),])
+dataNBAclean <- dataNBAclean[!duplicated(dataNBAclean$Player),]
+```
+Comprobamos que hay un dos valores duplicados, por lo que son eliminados del dataset inicial. Una vez que se han eliminado los valores nulos y duplicados, el dataset final presenta un total de 481 observaciones.
+
+# Creación de modelos
+Se ha seleccionado a priori una serie de modelos con el fin de compararlos. Estos modelos presentan como variable dependiente "Salary". Estudio de los diferentes modelos:
+```{r, warning = FALSE, echo=FALSE}
+model <- lm(Salary~+Age+PER+TS.+TRB.+OWS+DWS+WS, 
+            data = dataNBAclean)
+summary(model)
+```
+```{r, warning = FALSE, echo=FALSE}
+model1 <- lm(Salary~ . - Player, 
+            data = dataNBAclean)
+summary(model1)
+```
+```{r, warning = FALSE, echo=FALSE}
+model2 <- lm(Salary~. - Player - NBA_Country - Tm, 
+             data = dataNBAclean)
+summary(model2)
+```
+Se observan los estadísticos de los tres modelos, teniendo importancia el valor "Adjusted R-Squared". A priori, el mejor modelo seleccionado según el "R Cuadrado Ajustado" es el model2, ya que muestra un valor superior a los modelos anteriores.
+
+# QQPLot
+Un QQ-Plot es una representación gráfica, que sirve para comparar dos distribuciones para ver si coinciden. Es un gráfico de puntos que muestra los cuantiles. Si ambos cuantiles viene de la misma distribución, veremos que los puntos forman una linea recta, si esto no ocurre entenderemos que los datos muestrales no han sido generados por la distribución teórica. Para la representación tenemos que cargar librerias.
+```{r, warning = FALSE, echo=FALSE}
+library(car)
+qqPlot(model2, labels = row.names(dataNBAclean), id.method = 'identify',
+       simulate = TRUE, main = "Q-Q Plot")
+```
+Encontramos 4 puntos fuera de la grafica: 112, 114, 326, 328.
+
+# Histograma + densidad + normal + rug
+Representación curva densidad Kernel con el fin de observar normalidad.
+```{r, echo=FALSE}
+residplot <- function(fit, nbreaks=10) {
+  z <- rstudent(fit)
+  hist(z, breaks = nbreaks, freq = FALSE,
+       xlab = "Studentized Residual",
+       main = "Distribution of Errors")
+  rug(jitter(z), col = "brown")
+  curve(dnorm(x, mean = mean(z), sd = sd(z)),
+        add = TRUE, col = "blue", lwd = 2)
+  lines(density(z)$x, density(z)$y,
+        col = "red", lwd = 2, lty = 2)
+  legend("topright",
+         legend = c( "Normal Curve", "Kernel Density Curve"),
+         lty = 1:2, col = c("blue","red"), cex = .7)
+}
+
+residplot(model2)
+```
+
+# Jarque Bera
+En estadística, la prueba de Jarque-bera es una prueba de bondad de ajuste para comprobar si una muestra de datos tiene la asimetría y la curtosis de una distribución normal. 
+```{r, warning = FALSE, echo=FALSE, message=FALSE}
+library(fBasics)
+vResid = resid(model2)
+jbTest(vResid)
+```
+El p-valor del estadístico es aproximadamente 0 . Rechazamos ho, los datos no tienen asimetria y curtosis de distribución normal.
+
+# Shapiro-Wilk
+El test de Shapiro-Wilk permite comprobar si una muestra ha sido generada por una distribución normal.
+```{r, echo=FALSE}
+shapiro.test(vResid)
+```
+El p-valor del estadístico es aproximadamente 0 . Rechazamos ho, los datos no provienen de una distribución normal.
+
+# Linealidad
+## Componentes o gráficos de residuos parciales
+Se grafican los valores ajustados con respecto a los predictores, si no hay problemas de linealidad se obtiene una recta sobre las que se representan los puntos.
+
+```{r, echo=FALSE}
+crPlots(model2)
+```
+
+# Varianza constante. Homocedasticidad
+## Varianza no constante. Breusch-Pagan
+El test Breusch-Pagan se basa en las varianzas de las observaciones, donde explican la variabilidad de la varianza (varianza no constante)
+```{r, echo=FALSE}
+ncvTest(model2)
+```
+Rechazamos hipótesis nula, la varianza no es constante.
+```{r, echo=FALSE}
+spreadLevelPlot(model2)
+```
+
+# Validación global
+Podemos contrastar todas las hipótesis del modelo mediante el test de Peña, EA and Slate, EH.
+```{r, warning = FALSE, echo=FALSE}
+library(gvlma)
+gvmodel <- gvlma(model2) 
+summary(gvmodel)
+```
+Al modo de solo aceptar la heterocedasticidad y rechazar el resto, es indicatativo de que no existe linealidad en el modelo.
+
+# Multicolinealidad
+Es la existencia de alta correlación entre los predictores, esto puede producir problemas de imprecisión de los estimadores. Así, los intervalos de confianza son muy anchos, hay dificultad para interpretar los coeficientes y se tiende a no rechazar las hipótesis nula de significación.
+
+## Detección de la Multicolinealidad
+Para cualquier regresor la raíz del VIF indica cuantas veces es la varianza del estimador es mayor que la que se obtendría si no hubiera correlación entre los regresores. Cuando la raiz cuadrada de VIF > 2 se considera que hay problemas de multicolinealidad.
+```{r, echo=FALSE}
+vif(model2) 
+```
+```{r, echo=FALSE}
+sqrt(vif(model2)) > 2 
+```
+
+# Outliers
+## Valores atípicos
+Observaciones cuyo residuo asociado es grande.  Identificamos los valores atípicos mediante un Bonferroni p-values.
+```{r, echo=FALSE}
+outlierTest(model2)
+```
+Rechazamos hipótesis nula, por lo tanto no hay valores atípicos.
+
+## Valores extremos 
+Una observación es extrema si se encuentra apreciablemente alejada del resto de observaciones de la muestra.
+```{r, echo=FALSE}
+hat.plot <- function(fit) {
+  p <- length(coefficients(fit))
+  n <- length(fitted(fit))
+  plot(hatvalues(fit), main = "Index Plot of Hat Values")
+  abline(h = c(2,3)*p/n, col = "red", lty = 2)
+  identify(1:n, hatvalues(fit), names(hatvalues(fit)))
+}
+hat.plot(model2)
+```
+
+## Valores influyentes
+Identificamos valores influyentes
+
+```{r, warning = FALSE, echo=FALSE}
+cutoff <- 4/(nrow(dataNBAclean) - length(model2$coefficients) - 2)
+plot(model2, which = 4, cook.levels = cutoff)
+abline(h = cutoff, lty = 2, col = "red")
+```
+
+Añadimos gráficos de variables
+
+```{r, warning = FALSE, echo=FALSE}
+avPlots(model2, ask = FALSE, id.method = "identify")
+```
+
+Puntos de influencia
+
+```{r, warning = FALSE, echo=FALSE}
+influencePlot(model2, id.method = "identify", main = "Influence Plot", 
+              sub = "Circle size is proportial to Cook's Distance" )
+```
+
+# Interacción
+Comprobación interacción entre variables
+```{r, warning = FALSE, echo=FALSE}
+regresInter = lm(Salary~Age*PER*TS.*TRB.*OWS*DWS*WS, 
+               data = dataNBAclean)
+summary(regresInter)
+```
+No hay interaccíon significativa entre variables.
+
+# Selección de variables
+## Comparando modelos
+Se selecciona el modelo con menor AIC
+```{r, warning = FALSE, echo=FALSE}
+AIC(model,model1, model2)
+```
+Se selecciona el modelo con menor BIC
+```{r, warning = FALSE, echo=FALSE}
+BIC(model,model1, model2)
+```
+Según los criterios anteriores el mejor modelo es "model2"
+
+# Métodos de seleccion de variables
+## Best Subset
+Consiste en estimar todas las regresiones posibles con las combinaciones de los regresores.
+```{r, warning = FALSE, echo=FALSE}
+library(leaps)
+regfit.full = regsubsets(Salary~. - Player - NBA_Country - Tm, 
+                         data = dataNBAclean)
+reg.summary = summary(regfit.full)
+reg.summary
+```
+
+## Forward Stepwise
+Empieza con un modelo que no incluye ningún regresor y se van añadiendo regresores de uno en uno. En cada etapa la variable que más mejora adicional aporta al modelo es incluida.
+```{r, warning = FALSE, echo=FALSE}
+library(leaps)
+library(MASS)
+
+regfit.fwd = regsubsets(Salary~. - Player - NBA_Country - Tm,
+                      dataNBAclean,
+                      method = "forward")
+summary(regfit.fwd )
+```
+```{r, warning = FALSE, echo=FALSE}
+forwardmodel = lm(Salary~+NBA_DraftNumber+Age+G+MP+DRB.+USG.+WS+VORP, 
+                  data = dataNBAclean)
+summary(forwardmodel)
+```
+Con Adjusted R-squared = 0.5322
+
+## Backward Stepwise
+Empieza con un modelo que incluye todos los regresores y se van eliminando regresores de uno en uno. En cada etapa la variable que menos aporta al modelo es excluida.
+```{r, warning = FALSE, echo=FALSE}
+stepAIC(model2, direction = "backward")
+backwardmodel = lm(Salary~+NBA_DraftNumber+Age+G+MP+PER+X3PAr+ORB.+TRB.+USG.+WS+OBPM, 
+                  data = dataNBAclean)
+summary(backwardmodel)
+```
+Con Adjusted R-squared = 0.5329 
+
+## Modelo mixto
+```{r, warning = FALSE, echo=FALSE}
+stepAIC(model2, direction = "both")
+```
+```{r, warning = FALSE, echo=FALSE}
+mixmodel = lm(Salary ~ NBA_DraftNumber + Age + G + MP + PER + X3PAr + ORB. + TRB. + USG. + WS + OBPM, 
+                   data = dataNBAclean)
+summary(mixmodel)
+```
+Con Adjusted R-squared = 0.5329
+Podemos observar como tanto el modelo mixto como el backward son el mejor modelo. Ambos modelos son iguales.
+
+# Predicción salarios de 10 nombres aleatorios
+Hacemos la predicción de 10 nombres aleatorios con semilla 1234 y obtenemos los siguientes resultados.
+```{r, warning = FALSE, echo=FALSE}
+set.seed(1234)
+mixmodelpredict <- predict(mixmodel, dataNBAclean)
+mixmodelpredict[sample(1:481, 10)]
+```
+
+
